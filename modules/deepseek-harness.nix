@@ -54,9 +54,9 @@ let
   pnpm = import ../lib/pnpm.nix { inherit pkgs; };
 
   home = config.home.homeDirectory;
-  repo = "${home}/deepseek-harness";
-  dshHome = "${home}/.dsh";
-  labDir = "${home}/dsh-lab";
+  repo = cfg.installDir;
+  dshHome = cfg.dshHome;
+  labDir = cfg.labDir;
   logFile = "${labDir}/web.log";
   marker = "${repo}/.dsh-nix-rev";
 
@@ -217,6 +217,21 @@ in
       type = types.bool;
       default = false;
       description = "登录后自动启动 Web UI（Linux: systemd user 服务；macOS: LaunchAgent）";
+    };
+    installDir = lib.mkOption {
+      type = types.str;
+      default = "${home}/deepseek-harness";
+      description = "DeepSeek Harness 安装目录";
+    };
+    dshHome = lib.mkOption {
+      type = types.str;
+      default = "${home}/.dsh";
+      description = "DSH 配置目录";
+    };
+    labDir = lib.mkOption {
+      type = types.str;
+      default = "${home}/dsh-lab";
+      description = "DSH 实验目录";
     };
     gitRev = lib.mkOption {
       type = types.str;
