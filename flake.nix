@@ -10,7 +10,12 @@
   };
 
   outputs =
-    { self, nixpkgs, home-manager, ... }:
+    {
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }:
     let
       module = import ./modules/deepseek-harness.nix;
     in
