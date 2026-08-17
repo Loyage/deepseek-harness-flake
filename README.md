@@ -57,6 +57,33 @@ programs.deepseekHarness.enable = true;
 | `programs.deepseekHarness.secretFile` | `/run/agenix/deepseek-api-key` | DeepSeek API key 来源（agenix 解密路径）；不存在则跳过，Web UI 手动填 |
 | `programs.deepseekHarness.proxy` | `""` | git 代理（如 `http://127.0.0.1:7897`），空 = 直连 |
 | `programs.deepseekHarness.port` | `3080` | Web UI 监听端口 |
+| `programs.deepseekHarness.listenHost` | `127.0.0.1` | 监听地址。默认只监听本机回环（公网不可达），**远程访问走 SSH 隧道**，不要改成 `0.0.0.0` 暴露公网；叠加 Tailscale/WireGuard 时才改成虚拟网卡 IP |
+
+## 远程访问（SSH 隧道）
+
+Web UI 只监听 `127.0.0.1`，端口**不暴露到任何网卡**，坏人无法直接访问；
+远程访问复用你已有的 SSH 认证（密钥 + 加密），不需要管理 IP 白名单、不怕换 IP。
+
+**固定使用**：在本地设备的 `~/.ssh/config` 里给这台机器加一行转发，之后每次 `ssh` 进去隧道自动建立：
+
+```ssh_config
+Host dsh-server
+    HostName 210.72.130.217
+    Port 2222
+    LocalForward 3080 localhost:3080   # 把远端 3080 映射到本地
+```
+
+然后浏览器直接开 `http://localhost:3080` 即可。
+
+**临时使用**（不想改配置时）：
+
+```bash
+ssh -N -L 3080:localhost:3080 user@210.72.130.217 -p 2222 &
+# 浏览器开 http://localhost:3080
+```
+
+> 安全前提：dsh 机器上**禁用 SSH 密码登录、只留密钥认证**（`PasswordAuthentication no`），
+> 这样隧道和 SSH 一样安全。
 
 ## 版本策略（固定版本）
 
@@ -89,6 +116,9 @@ nix flake lock --update-input deepseek-harness
 
 ## 已知事项
 
+- Web UI 只监听 `127.0.0.1`，远程访问走 SSH 隧道（见上），无需任何防火墙规则；
+  旧版 iptables 白名单方案已移除
+
 - git clone / pnpm install 需要网络；GitHub 不通的机器请配 `programs.deepseekHarness.proxy`
   （如 `http://127.0.0.1:7897`），npm registry 走 `~/.npmrc` 或默认源
 - 上游要求 pnpm >= 11.7.0（`packageManager` 字段）。11.2.x 解析 `pnpm-workspace.yaml` 的
@@ -112,7 +142,7 @@ nix flake check   # 冒烟测试：enable = true 求值 + 构建激活脚本
 
 ```
 flake.nix                      # 入口：homeModules.default + checks
-modules/deepseek-harness.nix   # home-manager 模块本体
+modules/deepseek-harness.nix   # home-manager 模块本体（listenHost 默认 127.0.0.1）
 lib/pnpm.nix                   # pnpm >= 11.7.0 版本保障（条件 override）
 dsh-tsconfig.patch             # 上游缺失的 tsconfig paths 补丁
 ```

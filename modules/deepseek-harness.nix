@@ -20,6 +20,10 @@
 #
 # 启动：~/dsh-lab/dsh-web.sh start（或 startAtBoot = true 开机自启）
 #
+# 安全：Web UI 默认只监听 127.0.0.1（listenHost），公网完全不可达；
+#   远程访问走 SSH 隧道（SSH config 加 LocalForward 3080 localhost:3080，
+#   见 README「远程访问」），不暴露任何端口到公网。
+#
 # 已知事项：
 #   - git clone / pnpm install 需要网络；GitHub 不通的机器请配 programs.deepseekHarness.proxy
 #     （如 "http://127.0.0.1:7897"），npm registry 走 ~/.npmrc 或默认源
@@ -65,7 +69,7 @@ let
     export DSH_TELEMETRY_DISABLED=1
     exec "${pkgs.nodejs}/bin/node" --expose-internals \
       --import tsx/esm apps/cli/src/bin.ts web \
-      --host 127.0.0.1 --port ${toString cfg.port}
+      --host ${cfg.listenHost} --port ${toString cfg.port}
   '';
 
   # 安装/更新脚本：幂等，靠 marker（.dsh-nix-rev）跳过已构建的 rev
@@ -180,12 +184,12 @@ let
     # DeepSeek Harness Web UI 启停脚本（由本模块生成，勿手改）
     # 用法: dsh-web.sh start|stop|status|restart
     set -euo pipefail
-    REPO="${repo}"; URL="http://127.0.0.1:${toString cfg.port}"; LOG="${logFile}"
+    REPO="${repo}"; URL="http://${cfg.listenHost}:${toString cfg.port}"; LOG="${logFile}"
     start() {
       if curl -s -o /dev/null "$URL/"; then echo "已运行: $URL"; return 0; fi
       cd "$REPO"
       DSH_TELEMETRY_DISABLED=1 nohup ${pkgs.nodejs}/bin/node --expose-internals --import tsx/esm \
-        apps/cli/src/bin.ts web --host 127.0.0.1 --port ${toString cfg.port} > "$LOG" 2>&1 &
+        apps/cli/src/bin.ts web --host ${cfg.listenHost} --port ${toString cfg.port} > "$LOG" 2>&1 &
       echo "启动中 (pid $!)... 日志: $LOG"
       for i in $(seq 1 30); do sleep 1; if curl -s -o /dev/null "$URL/"; then
         echo "✓ 就绪: $URL"; return 0; fi; done
@@ -246,6 +250,16 @@ in
       type = types.port;
       default = 3080;
       description = "Web UI 监听端口";
+    };
+    listenHost = lib.mkOption {
+      type = types.str;
+      default = "127.0.0.1";
+      description = ''
+        Web UI 监听地址。默认只监听本机回环，公网不可达——远程访问请走
+        SSH 隧道（SSH config 加 LocalForward ${toString cfg.port} localhost:${toString cfg.port}），
+        不要改成 0.0.0.0 暴露公网。只有叠加 Tailscale/WireGuard 等加密网络
+        时才需要改成对应虚拟网卡的 IP。
+      '';
     };
   };
 
