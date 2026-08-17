@@ -17,7 +17,7 @@ monorepo 编进 nix store：
 # flake.nix
 {
   inputs = {
-    deepseek-harness-flake.url = "github:<你的用户名>/deepseek-harness-flake";
+    deepseek-harness-flake.url = "github:Loyage/deepseek-harness-flake";
     # ...
   };
   outputs = { deepseek-harness-flake, ... }: {
