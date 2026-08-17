@@ -1,0 +1,13 @@
+diff --git a/tsconfig.base.json b/tsconfig.base.json
+index 16d69db..dd9e593 100644
+--- a/tsconfig.base.json
++++ b/tsconfig.base.json
+@@ -211,6 +211,8 @@
+       "@deepseek-ai/dsh-client-ui-jobs": ["./packages/client/ui-jobs/src"],
+       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],
+       "@deepseek-ai/dsh-client-ui-user-questions": ["./packages/client/ui-user-questions/src"],
++      "@deepseek-ai/dsh-client-ui-directory-picker-browse": ["./packages/client/ui-directory-picker-browse/src"],
++      "@deepseek-ai/dsh-client-ui-directory-picker-native": ["./packages/client/ui-directory-picker-native/src"],
+       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
+       "@deepseek-ai/dsh-client-ui-workspace": ["./packages/client/ui-workspace/src"],
+       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
