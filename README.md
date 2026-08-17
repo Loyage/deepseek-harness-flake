@@ -52,16 +52,38 @@ programs.deepseekHarness.enable = true;
 | --- | --- | --- |
 | `programs.deepseekHarness.enable` | `false` | 启用（后台服务克隆+构建）。关闭即删除 `~/deepseek-harness` 与 `~/.dsh` |
 | `programs.deepseekHarness.startAtBoot` | `false` | 登录后自动启动 Web UI（Linux: systemd user 服务；macOS: LaunchAgent） |
-| `programs.deepseekHarness.gitRev` | 固定 commit | checkout 的 commit 或分支；改成 `"master"` 可追踪最新 |
+| `programs.deepseekHarness.gitRev` | 本 flake 锁定版本 | checkout 的 commit；默认 = `pinnedVersion`（flake.lock 锁定），只有更新本 flake 输入才会变 |
+| `programs.deepseekHarness.pinnedVersion` | flake.lock 锁定 rev | **只读**：本 flake 锁定的 dsh 版本，可用 `home-manager show-config` 查看 |
 | `programs.deepseekHarness.secretFile` | `/run/agenix/deepseek-api-key` | DeepSeek API key 来源（agenix 解密路径）；不存在则跳过，Web UI 手动填 |
 | `programs.deepseekHarness.proxy` | `""` | git 代理（如 `http://127.0.0.1:7897`），空 = 直连 |
 | `programs.deepseekHarness.port` | `3080` | Web UI 监听端口 |
 
-## 更新 / 启动
+## 版本策略（固定版本）
 
-- **更新**：改 `programs.deepseekHarness.gitRev` 后重新 home-switch，后台 `dsh-setup.service`
-  会自动 fetch、checkout、重打补丁、按需重建。
-  查看进度：`journalctl --user -u dsh-setup -f`
+本 flake 把 `deepseek-ai/deepseek-harness` 作为 **`flake = false` 的输入** 锁定在
+`flake.lock` 里——**安装/重建的 dsh 版本号就固定在这个 commit 上**：
+
+- `programs.deepseekHarness.gitRev` 默认 = 锁定版本，后台 `dsh-setup` 只 checkout 这个 commit
+- 构建指纹（锁定 rev + `dsh-tsconfig.patch` 内容 hash）写入 `~/deepseek-harness/.dsh-nix-rev`，
+  指纹不变就跳过 `pnpm install + build`：
+  普通 flake 改动、nixpkgs 升级、反复 home-switch 都**不会**重新编译
+- 查看当前锁定版本：`nix flake metadata`（或 `home-manager show-config` 里的 `pinnedVersion`）
+
+**升级 dsh（唯一途径）**：改 `flake.nix` 里 `deepseek-harness` 输入的 rev，然后
+
+```bash
+nix flake lock --update-input deepseek-harness
+# 提交 flake.nix + flake.lock 后，重新 home-switch / just switch
+```
+
+后台 `dsh-setup.service` 会自动 fetch、checkout、重打补丁、按需重建
+（查看进度：`journalctl --user -u dsh-setup -f`）。
+
+> 注意：把 `gitRev` 改成 `"master"` 等分支名可追踪上游最新，但**上游每次变动都会触发
+> 重新编译**，与固定版本的目标相悖。
+
+## 启动 / 清除
+
 - **启动**：`~/dsh-lab/dsh-web.sh start`（或 `startAtBoot = true` 开机自启）
 - **清除**：把 `enable` 改回 `false` 后 switch，激活时自动删除全部痕迹
 

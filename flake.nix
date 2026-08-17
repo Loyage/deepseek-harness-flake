@@ -7,6 +7,15 @@
       url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # dsh 版本锁（flake = false：只取 rev，不当作 flake）。
+    # 安装/重建的 dsh 版本 = 这里锁定的 commit（写入本 flake 的 flake.lock）。
+    # 升级 dsh 的唯一途径：改下面 url 的 rev 后执行
+    #   nix flake lock --update-input deepseek-harness
+    # 然后重新 home-switch（dsh-setup 会自动 fetch/checkout/重编译）。
+    deepseek-harness = {
+      url = "github:deepseek-ai/deepseek-harness/47f943859bef60e4160492346772ded9b24f765a";
+      flake = false;
+    };
   };
 
   outputs =
@@ -14,10 +23,13 @@
       self,
       nixpkgs,
       home-manager,
+      deepseek-harness,
       ...
     }:
     let
-      module = import ./modules/deepseek-harness.nix;
+      # flake.lock 锁定的 dsh 版本（git 输入携带 rev 元数据）
+      pinnedRev = deepseek-harness.rev;
+      module = (import ./modules/deepseek-harness.nix) { inherit pinnedRev; };
     in
     {
       homeModules = {

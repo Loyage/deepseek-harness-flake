@@ -9,9 +9,14 @@
 #   在目标主机的 home-manager 配置里设 programs.deepseekHarness.enable = true，
 #   其余主机保持默认 false，既不克隆也不构建，switch 时自动清理旧痕迹。
 #
-# 更新：改 programs.deepseekHarness.gitRev（默认固定 commit；改成 "master" 可追踪最新），
-#       然后重新 home-switch / just switch，后台 dsh-setup.service 会自动 fetch、checkout、
-#       重打补丁、按需重建（查看进度：journalctl --user -u dsh-setup -f）
+# 版本策略（固定版本，除非本 flake 显式更新）：
+#   - dsh 版本 = 本 flake 的 flake.lock 锁定的 commit（inputs.deepseek-harness，flake=false）
+#   - programs.deepseekHarness.gitRev 默认 = 该锁定版本；后台 dsh-setup 只 checkout 这个 commit
+#   - 构建指纹（锁定 rev + 补丁文件 hash）写入 ~/deepseek-harness/.dsh-nix-rev，
+#     指纹不变就跳过 pnpm install + build：普通 flake 改动 / nixpkgs 升级 / 反复 switch 不重编译
+#   - 更新 dsh 的唯一途径：改 flake.nix 里 deepseek-harness 输入的 rev，然后
+#     nix flake lock --update-input deepseek-harness，再 home-switch / just switch
+#     （查看进度：journalctl --user -u dsh-setup -f）
 #
 # 启动：~/dsh-lab/dsh-web.sh start（或 startAtBoot = true 开机自启）
 #
@@ -29,6 +34,7 @@
 #   - HMR 服务要求 node 带 --expose-internals（不能走 NODE_OPTIONS），
 #     且必须在仓库目录启动（tsx 需要仓库根 tsconfig.json 的 paths 映射），脚本里已处理
 
+{ pinnedRev }:
 {
   config,
   pkgs,
@@ -65,8 +71,10 @@ let
   # 安装/更新脚本：幂等，靠 marker（.dsh-nix-rev）跳过已构建的 rev
   setupScript = pkgs.writeShellScript "dsh-setup" ''
     set -u
+    # 激活环境 PATH 很精简，显式补充所需命令（node/git/grep/sed/pkill/coreutils/curl）
+    export PATH="${pkgs.nodejs}/bin:${pkgs.git}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:${pkgs.procps}/bin:${pkgs.coreutils}/bin:${pkgs.curl}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     REPO="${repo}"; DSH="${dshHome}"; LAB="${labDir}"
-    REV="${cfg.gitRev}"; SECRET="${cfg.secretFile}"
+    REV="${cfg.gitRev}"; PINNED="${cfg.pinnedVersion}"; SECRET="${cfg.secretFile}"
     PROXY_ARGS=""
     if [ -n "${cfg.proxy}" ]; then
       if curl -s -o /dev/null --max-time 3 -x "${cfg.proxy}" https://github.com 2>/dev/null; then
@@ -79,12 +87,12 @@ let
     PNPM="${pnpm}/bin/pnpm"
     PATCH="${patchFile}"
     MARKER="${marker}"
+    # 构建指纹 = 锁定版本 + 补丁内容 hash：
+    # 只有这两者之一变化才重新编译，普通 flake 改动 / nixpkgs 升级 / 反复 switch 都跳过
+    FINGERPRINT="''${REV}-$(sha256sum "$PATCH" | cut -d' ' -f1)"
 
-    echo "dsh: 安装/更新 DeepSeek Harness (rev=''${REV})"
+    echo "dsh: DeepSeek Harness 安装/更新（flake 锁定版本: ''${PINNED}）"
     mkdir -p "$LAB"
-
-    # 激活环境 PATH 很精简，显式补充所需命令（node/git/pkill/coreutils）
-    export PATH="${pkgs.nodejs}/bin:${pkgs.git}/bin:${pkgs.procps}/bin:${pkgs.coreutils}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
     # 1. 克隆（完整 clone，方便 checkout 任意 rev）
     if [ ! -d "$REPO/.git" ]; then
@@ -101,16 +109,21 @@ let
       git $PROXY_ARGS fetch --unshallow origin || true
     fi
 
-    # 2. 更新到目标 rev（分支自动跟踪，commit 本地已有则直接用）
-    git $PROXY_ARGS fetch origin 2>/dev/null || true
+    # 2. 固定版本：rev 已在本地直接 checkout（不联网、不 fetch，反复 switch 无网络开销）；
+    #    缺失才从 origin 获取（分支名也走这里）
     if ! git cat-file -e "$REV^{commit}" 2>/dev/null; then
+      echo "dsh: 本地无 rev=''${REV}，从 origin 获取..."
       git $PROXY_ARGS fetch origin "$REV" \
-        || { echo "⚠️ dsh: 无法获取 rev=''${REV}（请检查 gitRev 是否正确）"; exit 1; }
+        || { echo "⚠️ dsh: 无法获取 rev=''${REV}（检查 gitRev / 网络 / 代理）"; exit 1; }
     fi
     git checkout -f "$REV" \
       || { echo "⚠️ dsh: checkout 失败 rev=''${REV}"; exit 1; }
 
     CURRENT="$(git rev-parse HEAD)"
+
+    if [ "$CURRENT" != "$PINNED" ]; then
+      echo "⚠️ dsh: checkout=''${CURRENT} ≠ flake 锁定=''${PINNED}（gitRev 被覆盖为分支/其它 commit；要固定版本请用默认值）"
+    fi
 
     # 3. 打补丁（若上游已修复则跳过）
     if ! grep -q "dsh-client-ui-directory-picker-native" tsconfig.base.json; then
@@ -122,19 +135,19 @@ let
       fi
     fi
 
-    # 4. 构建（rev 变化或产物缺失时才执行）
+    # 4. 构建：仅当版本/补丁指纹变化或产物缺失时才执行
     NEED_BUILD=0
     [ -f "$MARKER" ] || NEED_BUILD=1
-    [ "$(cat "$MARKER" 2>/dev/null)" = "$CURRENT" ] || NEED_BUILD=1
+    [ "$(cat "$MARKER" 2>/dev/null)" = "$FINGERPRINT" ] || NEED_BUILD=1
     [ -d node_modules ] || NEED_BUILD=1
     [ -f apps/cli/lib/bin.js ] || NEED_BUILD=1
     if [ "$NEED_BUILD" = 1 ]; then
-      echo "dsh: pnpm install + build（首次约 2-3 分钟）..."
+      echo "dsh: 版本/补丁变化或产物缺失，pnpm install + build（首次约 2-3 分钟）..."
       "$PNPM" install || { echo "⚠️ dsh: pnpm install 失败"; exit 1; }
       "$PNPM" run build || { echo "⚠️ dsh: build 失败"; exit 1; }
-      echo "$CURRENT" > "$MARKER"
+      echo "$FINGERPRINT" > "$MARKER"
     else
-      echo "dsh: 已是构建过的 rev（''${CURRENT}），跳过"
+      echo "dsh: ''${CURRENT} 已构建（本 flake 锁定版本未变），跳过编译"
     fi
 
     # 5. 写 DeepSeek API key（来自 agenix 解密后的 secret；缺失则跳过，可在 Web UI 填）
@@ -203,8 +216,21 @@ in
     };
     gitRev = lib.mkOption {
       type = types.str;
-      default = "47f943859bef60e4160492346772ded9b24f765a";
-      description = "deepseek-harness checkout 的 commit 或分支（改这里来更新版本）";
+      default = pinnedRev;
+      description = ''
+        deepseek-harness checkout 的 commit。默认 = 本 flake 锁定的版本
+        （flake.lock 的 deepseek-harness 输入，${pinnedRev}）：只有显式更新该
+        flake 输入（nix flake lock --update-input deepseek-harness）才会变，
+        否则反复 home-switch / 改其它配置都不会重建 dsh。
+        改成分支名（如 "master"）可追踪上游最新，但上游每次变动都会触发重新编译。
+      '';
+    };
+    pinnedVersion = lib.mkOption {
+      type = types.str;
+      readOnly = true;
+      internal = true;
+      default = pinnedRev;
+      description = "本 flake 锁定的 dsh 版本（flake.lock 中 deepseek-harness 输入的 rev）";
     };
     secretFile = lib.mkOption {
       type = types.str;
