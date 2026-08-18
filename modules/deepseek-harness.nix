@@ -5,6 +5,10 @@
 #   - 换 pin、上游变动都不需要改 hash / 依赖树，只影响 ~/deepseek-harness 一份本地 checkout
 #   - 关掉开关即可整机清除（激活脚本删除 ~/deepseek-harness 与 ~/.dsh）
 #
+# 内置插件：
+#   - dsh-web-ui 全家桶（任务看板、Git 图谱、右侧面板、移动端远程、SSH 运维、
+#     图像理解、鲸鱼娘宠物、皮肤中心等）在首次构建时自动安装到 web profile
+#
 # 用法（默认关闭，按主机显式开启）：
 #   在目标主机的 home-manager 配置里设 programs.deepseekHarness.enable = true，
 #   其余主机保持默认 false，既不克隆也不构建，switch 时自动清理旧痕迹。
@@ -154,7 +158,80 @@ let
       echo "dsh: ''${CURRENT} 已构建（本 flake 锁定版本未变），跳过编译"
     fi
 
-    # 5. 写 DeepSeek API key（来自 agenix 解密后的 secret；缺失则跳过，可在 Web UI 填）
+    # 5. 安装插件（dsh-web-ui 全家桶）
+    PROFILE_DIR="$DSH/profiles/web"
+    WEB_UI_MARKER="$PROFILE_DIR/.dsh-web-ui-installed"
+    if [ ! -f "$WEB_UI_MARKER" ]; then
+      echo "dsh: 安装 dsh-web-ui 插件..."
+      mkdir -p "$PROFILE_DIR"
+
+      # 初始化 pnpm-workspace.yaml（如果不存在）
+      if [ ! -f "$PROFILE_DIR/pnpm-workspace.yaml" ]; then
+        cat > "$PROFILE_DIR/pnpm-workspace.yaml" <<'WORKSPACE_EOF'
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+minimumReleaseAgeExclude:
+  - '@linxin666/*'
+allowBuilds:
+  cloudflared: true
+  cpu-features: true
+  ssh2: true
+WORKSPACE_EOF
+        echo "dsh: 已创建 pnpm-workspace.yaml"
+      fi
+
+      # 初始化 package.json（如果不存在）
+      if [ ! -f "$PROFILE_DIR/package.json" ]; then
+        cat > "$PROFILE_DIR/package.json" <<'PKG_EOF'
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}
+PKG_EOF
+        echo "dsh: 已创建 package.json"
+      fi
+
+      # 初始化 cordis.patch.yml（如果不存在）
+      if [ ! -f "$PROFILE_DIR/cordis.patch.yml" ]; then
+        echo '[]' > "$PROFILE_DIR/cordis.patch.yml"
+        echo "dsh: 已创建 cordis.patch.yml"
+      fi
+
+      # 初始化 cordis.yml（如果不存在）
+      if [ ! -f "$PROFILE_DIR/cordis.yml" ]; then
+        cat > "$PROFILE_DIR/cordis.yml" <<'CORDIS_EOF'
+# dsh profile root
+[]
+CORDIS_EOF
+        echo "dsh: 已创建 cordis.yml"
+      fi
+
+      # 使用 dsh CLI 安装插件
+      cd "$REPO"
+      "$NODE" apps/cli/lib/bin.js plugin --profile web add @linxin666/dsh-web-ui-all || {
+        echo "⚠️ dsh: dsh-web-ui 安装失败，可稍后手动安装: dsh plugin --profile web add @linxin666/dsh-web-ui-all"
+      }
+
+      # 标记已安装
+      touch "$WEB_UI_MARKER"
+      echo "dsh: dsh-web-ui 插件安装完成"
+    else
+      echo "dsh: dsh-web-ui 已安装，跳过"
+    fi
+
+    # 6. 写 DeepSeek API key（来自 agenix 解密后的 secret；缺失则跳过，可在 Web UI 填）
     if [ -r "$SECRET" ]; then
       mkdir -p "$DSH"
       umask 077

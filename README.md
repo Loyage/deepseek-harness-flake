@@ -46,6 +46,22 @@ imports = [
 programs.deepseekHarness.enable = true;
 ```
 
+## 内置插件
+
+首次构建时自动安装 [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 全家桶到 `~/.dsh/profiles/web/`，包含：
+
+- **梁神模式**：面向 DeepSeek V4 Pro 的两阶段锚定预设
+- **任务看板**：五列看板 + cron 定时真实执行
+- **Git 图谱**：分支泳道 + 提交历史可视化
+- **右侧面板**：资源管理器 / 编辑器 / 终端 / Git / 浏览器
+- **移动端远程**：扫码配对，SSE 实时同步
+- **SSH 运维**：终端 / 传输 / 隧道 / 集群
+- **图像理解**：`describe_image` 视觉工具
+- **鲸鱼娘宠物**：常驻界面的互动宠物
+- **皮肤中心**：11 款主题皮肤
+
+安装后重启 `dsh web`，侧边栏出现全部插件入口。打开「设置 > 插件配置」按需开关各插件。
+
 ## 选项
 
 | 选项 | 默认值 | 说明 |
@@ -145,4 +161,12 @@ flake.nix                      # 入口：homeModules.default + checks
 modules/deepseek-harness.nix   # home-manager 模块本体（listenHost 默认 127.0.0.1）
 lib/pnpm.nix                   # pnpm >= 11.7.0 版本保障（条件 override）
 dsh-tsconfig.patch             # 上游缺失的 tsconfig paths 补丁
+
+# 首次构建时自动创建：
+~/.dsh/profiles/web/            # web profile 目录
+  ├── package.json              # 插件依赖声明
+  ├── pnpm-workspace.yaml       # pnpm 配置（hoisted + allowBuilds）
+  ├── cordis.yml                # cordis 入口
+  ├── cordis.patch.yml          # 配置补丁层
+  └── node_modules/             # 插件依赖
 ```
